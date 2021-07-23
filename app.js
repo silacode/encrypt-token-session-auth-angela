@@ -1,9 +1,7 @@
 //------------------------------------------- Siladitya Samaddar -------------------------------------------------------//
 //
-// mongoose-encryption, node-module is used as a pulgin to encrypt password on the runtime.
-// password is ecrypted while save() and decrypted while find using mongoose query.
-// the plugin is attached to the userSchema. that way while using userSchema mongoose can encrypt-decrypt on runtime.
-// This is ideally to encrypt whole database.
+// bcrypt, node-module is used to encrypt password.
+// bcrypt salt and hash used.
 //
 //-----------------------------------------------------------------------------------------------------------------------//
 
@@ -13,10 +11,10 @@ require("dotenv").config();
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
+const bcrypt = require("bcrypt");
 
 //........................... constants ..............................
-const secret = process.env.SECRET;
+const saltRounds = 10;
 
 //........................... app setup ..............................
 const app = express();
@@ -51,8 +49,6 @@ const userSchema = new Schema({
   email: String,
   password: String,
 });
-// mongoose encryption plugin
-userSchema.plugin(encrypt, { secret, encryptedFields: ["password"] });
 const User = new mongoose.model("User", userSchema);
 
 //.............................. routes ..................................
@@ -62,11 +58,14 @@ app.get("/register", (req, res) => res.render("register"));
 
 app.post("/register", (req, res) => {
   const { username, password } = req.body;
-  const newUser = new User({
-    email: username,
-    password,
+  //bcrypt hash passowrd
+  bcrypt.hash(password, saltRounds, (err, hash) => {
+    const newUser = new User({
+      email: username,
+      password: hash,
+    });
+    newUser.save((err) => (err ? console.log(err) : res.render("secrets")));
   });
-  newUser.save((err) => (err ? console.log(err) : res.render("secrets")));
 });
 
 app.post("/login", (req, res) => {
@@ -74,7 +73,10 @@ app.post("/login", (req, res) => {
   User.findOne({ email: username }, (err, foundUser) => {
     if (err) console.log(err);
     else if (foundUser) {
-      if (foundUser.password === password) res.render("secrets");
+      //bcrypt compare hash password
+      bcrypt.compare(password, foundUser.password, (err, result) => {
+        if (result) res.render("secrets");
+      });
     }
   });
 });
