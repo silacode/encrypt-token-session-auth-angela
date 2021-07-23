@@ -1,7 +1,8 @@
 //------------------------------------------- Siladitya Samaddar -------------------------------------------------------//
 //
-// bcrypt, node-module is used to encrypt password.
-// bcrypt salt and hash used.
+// passport local strategy for cookie based session authorization
+// authenticated routes
+// passport, passport-local, passport-local-mongoose, express-session modules are used.
 //
 //-----------------------------------------------------------------------------------------------------------------------//
 
@@ -11,10 +12,13 @@ require("dotenv").config();
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
+//also install passport-local
 
 //........................... constants ..............................
-const saltRounds = 10;
+const secret = process.env.SECRET;
 
 //........................... app setup ..............................
 const app = express();
@@ -22,6 +26,17 @@ app.use(express.static("public"));
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+//express-session cookie setup
+app.use(
+  session({
+    secret: secret,
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+// passport initialization and setup for cookie session
+app.use(passport.initialize());
+app.use(passport.session());
 
 //.......................... database setup ...........................
 mongoose.connect(process.env.MONGO_URI, {
@@ -29,7 +44,6 @@ mongoose.connect(process.env.MONGO_URI, {
   useUnifiedTopology: true,
   useCreateIndex: true,
 });
-
 const db = mongoose.connection;
 db.on("connected", () => console.log("Connected to mongoDb atlas"));
 db.on("error", (err) => console.log("Failed to connect to mongoDb atlas", err));
@@ -49,35 +63,49 @@ const userSchema = new Schema({
   email: String,
   password: String,
 });
+//passport-local-mongoose is used to hash and salt password and save to database
+userSchema.plugin(passportLocalMongoose);
 const User = new mongoose.model("User", userSchema);
+
+//.............................. passport setup .............................
+//passport local login strategy
+passport.use(User.createStrategy());
+//serialize and deserialize user into cookie
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 //.............................. routes ..................................
 app.get("/", (req, res) => res.render("home"));
 app.get("/login", (req, res) => res.render("login"));
 app.get("/register", (req, res) => res.render("register"));
-
+//authenticated route
+app.get("/secrets", (req, res) => {
+  req.isAuthenticated() ? res.render("secrets") : res.redirect("/login");
+});
+app.get("/logout", (req, res) => {
+  req.logout();
+  res.redirect("/");
+});
+//register route
 app.post("/register", (req, res) => {
   const { username, password } = req.body;
-  //bcrypt hash passowrd
-  bcrypt.hash(password, saltRounds, (err, hash) => {
-    const newUser = new User({
-      email: username,
-      password: hash,
-    });
-    newUser.save((err) => (err ? console.log(err) : res.render("secrets")));
+  //passport method for register
+  User.register({ username }, password, (err, user) => {
+    if (err) {
+      console.log(err);
+      res.redirect("/register");
+    }
+    passport.authenticate("local")(req, res, () => res.redirect("/secrets"));
   });
 });
-
+//login route
 app.post("/login", (req, res) => {
   const { username, password } = req.body;
-  User.findOne({ email: username }, (err, foundUser) => {
+  const user = new User({ username, password });
+  //passport method for login
+  req.login(user, (err) => {
     if (err) console.log(err);
-    else if (foundUser) {
-      //bcrypt compare hash password
-      bcrypt.compare(password, foundUser.password, (err, result) => {
-        if (result) res.render("secrets");
-      });
-    }
+    passport.authenticate("local")(req, res, () => res.redirect("/secrets"));
   });
 });
 
